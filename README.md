@@ -1,6 +1,5 @@
 # Practical-Machine-Learning
 ---
-layout: default
 title: Coursera Practical-Machine-Learning Final Project Repository
 ---
 
