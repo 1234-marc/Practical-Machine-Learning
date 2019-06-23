@@ -1,10 +1,9 @@
+# Practical-Machine-Learning
 ---
-layout: default
-title: Example
+title: Coursera Practical-Machine-Learning Final Project Repository
 ---
 
-# Example project
+# Project Submissions
 
-- [About the project](about)
-- [Publications](publications)
-- [Team](team)
+- [Html Final Project](Practical_ML_Prediction_Assignment_Writeup.html)
+- [Rmd Final Project](Practical_ML_Prediction_Assignment_Writeup.rmd)
