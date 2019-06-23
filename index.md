@@ -1,7 +1,4 @@
-# Practical-Machine-Learning
----
-title: Coursera Practical-Machine-Learning Final Project Repository
----
+# Coursera Practical-Machine-Learning Final Project Repository
 
 # Project Submissions
 
