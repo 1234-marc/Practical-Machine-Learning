@@ -1,0 +1,368 @@
+---
+title: "Coursera - Practical Machine Learning - Prediction Assignment Writeup"
+author: "Marc Etienne de Montrigaud"
+date: "21/06/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list=ls())
+```
+
+## Background / Introduction
+
+Human Activity Recognition - HAR - has emerged as a key research area in the last years and is gaining increasing attention by the pervasive computing research community, especially for the development of context-aware systems. There are many potential applications for HAR, like: elderly monitoring, life log systems for monitoring energy expenditure and for supporting weight-loss programs, and digital assistants for weight lifting exercises.
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it (__qualitative activity recognition__).
+
+\  
+
+__The HAR Dataset for benchmarking__
+
+Using data from accelerometers on the belt, forearm, arm, and dumbbell of 6 participants who were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The manner in which these participants did the exercise was reported in the "classe" variable in the training set. 
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes.
+
+Read More in:  http://groupware.les.inf.puc-rio.br/har
+
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. __Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements__. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6. 
+
+Especial thanks to the mentioned authors for being so generous in allowing their data to be used for this kind of assignment.
+
+\  
+
+## Prediction Assignment
+
+- The goal of this report is to build a model that predicts the manner in which the participants of the HAR dataset did the exercises. 
+- This information is the “classe” variable in the training set.
+- Any other variables may be used to predict with. 
+- The report should describe how the model was built, how cross validation was used, provide interpretation of accuracy results, and explain why some choices were made. 
+- Finally, the prediction model should apply the machine learning algorithm to the 20 test cases available in the test data. 
+
+\  
+
+## Steps for building the predicting model for qualitative activity recognition
+
+\  
+
+__1) Download of the training and test data from:__
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+\  
+
+__2) Loading and Exploring the data set in R__
+
+```{r}
+set.seed(12345) # For reproducibility
+
+trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+pmlTraining <- read.csv(url(trainUrl), na.strings=c("NA","#DIV/0!",""), stringsAsFactors=F)
+pmlTesting <- read.csv(url(testUrl), na.strings=c("NA","#DIV/0!",""), stringsAsFactors=F)
+#setwd("C:/Users/Marc/Documents")
+#pmlTraining <- read.csv("C:/Users/Marc/Documents/pml-training.csv", na.strings=c("NA","#DIV/0!",""), stringsAsFactors=F)
+#pmlTesting <- read.csv("C:/Users/Marc/Documents/pml-testing.csv", na.strings=c("NA","#DIV/0!",""), stringsAsFactors=F)
+dim(pmlTraining)
+dim(pmlTesting)
+```
+
+\  
+
+- __The training data consists of 19622 observations with 160 variables.__
+
+- __The test data consists of 20 observations with 160 variables.__
+
+
+\  
+
+__Verifying missing values:__
+
+
+```{r}
+numNAs <- apply(pmlTraining, 2, function(x) sum(is.na(x)))
+hist(numNAs, xlab="Number of NAs", col="cyan", main="Histogram of NAs in Variables")
+
+```
+
+\  
+
+The histogram above shows that about 100 columns from the training set have NAs values in a very high proportion. The remaning 60 columns have almost no NAs.
+
+\  
+
+__3) Preparing and cleaning the training data for modeling__
+
+- Columns with a rate of missing data superior to 90% will be removed from both training ans testing sets since they will not produce any profitable information.
+- The first six columns from both data sets give informations about the people who did the test and some timestamps. They will not be taken in account to build the prediction model since they have no impact in measuring the qualitative activity recognition.
+
+```{r}
+# Removing columns with a High rate (> 90%) of NAs
+TestColsHighNAs <- which(colSums(is.na(pmlTesting) | pmlTesting=="") > 0.9*dim(pmlTesting)[1]) 
+TrainColsHighNAs <- which(colSums(is.na(pmlTraining) | pmlTraining=="") > 0.9*dim(pmlTraining)[1]) 
+pmlTesting <- pmlTesting[,-TestColsHighNAs]
+pmlTraining <- pmlTraining[,-TrainColsHighNAs]
+# Removing the fisrt seven columns
+pmlTesting <- pmlTesting[,-c(1:6)]
+pmlTraining <- pmlTraining[,-c(1:6)]
+dim(pmlTesting)
+dim(pmlTraining)
+```
+
+\  
+
+__After cleaning, the new training and testing data sets have now 54 columns each.__
+
+\  
+
+__The correlations (R2) between the remaining columns were checked in a cluster dendrogram. The distance matrix was calculated from the formula 1−R2__
+
+```{r}
+# Cluster according to correaltion between variables
+dist <- as.dist(1-(cor(pmlTraining[,-54])^2))
+plot(hclust(dist)) 
+```
+
+\  
+
+The dendogram graph shows that many of the variables are strongly correlated to each other. Thus, the number of predictors can probably be reduced in the model building. We will check that further.
+
+\  
+
+## Defining and testing prediction Models
+
+We will test 3 different models for this project : 
+
+- Random Forest in first place (it deals well will corelated variables)
+- Classification Tree
+- Gradient Boosting 
+
+To limit the effects of overfitting and improve the efficicency of the models we will use the __cross-validation technique__ with 5 folds and 4 repetitions (to avoid higher run times with problably no significant increase of accuracy).
+
+The data set will be splited into an actual training set (70%) and a validation set (30%). 
+In addition, a smaller data set (5%) will be created, which will only be used to identify the most important predictors (using less computation).
+
+Used parallel processing to improve performance of the models calculations.
+
+\  
+
+```{r}
+library(caret)
+# Creating partition of the traning data set 
+inTrain <- createDataPartition(pmlTraining$classe, p=0.7, list=FALSE)
+trainSet <- pmlTraining[inTrain,]
+validSet <- pmlTraining[-inTrain,]
+shortTrainSet <- pmlTraining[createDataPartition(pmlTraining$classe, p=0.05, list=FALSE),]
+dim(trainSet)
+dim(validSet)
+dim(shortTrainSet)
+```
+
+\  
+
+__Fit Model in Short Train Data with Random Forest to identify important variables__
+
+```{r}
+# Using parallel processing to improve performance
+library(parallel)
+library(doParallel)
+cluster <- makeCluster(detectCores() - 1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
+trControl <- trainControl(method = "repeatedcv",
+                          number = 5,   # Folds
+                          repeats = 4,  # Repetitions
+                          summaryFunction = multiClassSummary,
+                          classProbs = TRUE,
+                          allowParallel = TRUE)
+system.time(modelRFShort <- train(classe ~ ., data=shortTrainSet, method="rf", trControl = trControl))
+stopCluster(cluster)
+```
+\  
+
+This small data set took more than 1 minute to calculate. Thus, the data set was reduced based on "varImp", a function that helps to identify the relative importance of the variables in a fitted model.
+
+```{r}
+varImp(modelRFShort)
+```
+
+\  
+
+Selecting the top 10 variables that will be used in the complete training set for training the 3 proposed models.
+
+```{r}
+varClass <- cbind(var_name = rownames(varImp(modelRFShort)[[1]]), rank = varImp(modelRFShort)[[1]])
+varTop <- as.character(varClass[order(varClass[,2], decreasing = T),][1:10,1])
+# Add classe:
+varTop <- c(varTop, "classe")
+
+```
+
+\  
+
+Adjusting (reducing) the training and validation sets with the 10 top predictors
+
+```{r}
+trainSetR <- trainSet[varTop]
+validSetR <- validSet[varTop]
+```
+
+\ 
+
+Just checking againg the correlation between the 10 remaining variables
+
+```{r}
+# Cluster according to correaltion between variables
+dist <- as.dist(1-(cor(trainSetR[,-11])^2))
+plot(hclust(dist)) 
+```
+\  
+
+The adjustment resulted in a data set with not so highly correlated variables.
+
+\  
+
+__1) Fit Random Forest Model__
+
+```{r}
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+
+trControl <- trainControl(method = "repeatedcv",
+                          number = 5,   # Folds
+                          repeats = 4,  # Repetitions
+                          summaryFunction = multiClassSummary,
+                          classProbs = TRUE,
+                          allowParallel = TRUE)
+
+system.time(modelRF <- train(classe ~ .,
+                         data=trainSetR, 
+                         method="rf", 
+                         trControl = trControl))
+
+stopCluster(cluster)
+```
+
+```{r}
+trainPredRF <- predict(modelRF, newdata=validSetR)
+confusionMatrix(trainPredRF, factor(validSetR$classe))
+```
+\  
+
+__The accuracy of this Random Forest model was 99.8%, a very high value for machine learning predictions.__
+
+
+\  
+
+It is also possible to state the out of sample error rate, which is the proportion of wrongly classified cases in the validation set. 
+
+To estimate this rate, the number of incorrectly predicted cases was divided by the total number of cases:
+
+```{r}
+length(which(trainPredRF!=validSetR$classe))
+## [1] 20
+length(validSetR$classe) 
+## [1] 7846
+length(which(trainPredRF!=validSetR$classe)) / length(validSetR$classe) 
+```
+
+This model have an out of sample error rate of 0.15%. The model predicted only 9 out of 5885 cases incorrectly.
+
+
+\  
+
+__2) Fit Model Classification Tree__
+
+```{r}
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+trControl <- trainControl(method = "repeatedcv",
+                          number = 5,   # Folds
+                          repeats = 4,  # Repetitions
+                          summaryFunction = multiClassSummary,
+                          classProbs = TRUE,
+                          allowParallel = TRUE)
+system.time(modelCT <- train(classe ~ ., 
+                          data = trainSetR, 
+                          method = "rpart", 
+                          tuneLength = 50, 
+                          metric = "Accuracy", 
+                          trControl = trControl))
+stopCluster(cluster)
+# Print Classification Tree Model
+#library(rattle)
+#fancyRpartPlot(modelCT$finalModel)
+```
+
+
+```{r}
+# Make prediction with validation set
+trainPredCT <- predict(modelCT,newdata=validSet)
+# Display confusion matrix
+confusionMatrix(trainPredCT, factor(validSetR$classe))
+```
+
+
+__The accuracy results for the Classification Tree model is about 93%.__
+
+
+\ 
+
+
+__3) Fit Model Gradient Boosting__
+
+```{r}
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+trControl <- trainControl(method = "repeatedcv",
+                          number = 5,   # Folds
+                          repeats = 4,  # Repetitions
+                          summaryFunction = multiClassSummary,
+                          classProbs = TRUE,
+                          allowParallel = TRUE)
+system.time(modelGB <- train(classe ~ ., 
+                          data = trainSetR, 
+                          method = "gbm", 
+                          trControl = trControl,
+                          verbose = FALSE))
+stopCluster(cluster)
+# Make prediction with validation set
+trainPredGB <- predict(modelGB,newdata=validSet)
+# Display confusion matrix
+confusionMatrix(trainPredGB, factor(validSetR$classe))
+```
+
+
+__The accuracy results for the Gradient Boost model is about 99,3%.__
+
+
+## Conclusion
+
+The original data set consisted of to many columns with NAs values.
+
+It was cleaned and resulted in a set of 54 variables, which were tested for relative importance with an initial random forest model.
+
+The most important (and not highly correlated) 10 variables were kept for the final Random Forest, Classification Tree and Gradient Boost models calculation.
+
+The final accuracy of the 3 regression modeling methods with a 5 fold cross validation and 4 repetition each are:
+
+- Random Forest : __0.998__
+- Classification Tree : __0.93__
+- Gradient Boost : __0.993__
+
+The Random Forest model predicted the validation data set with 99.8% accuracy and an error rate of only 0.15%.
+
+The model was extremely precise in the prediction, which indicated that the five classes of movement were very distinctive.
+
+It would be of high interest to have new data generated with new participants to further test the performance of the model.
+
+\  
+
+## Applying the selected model to the Test Data for predicting classes
+
+The 20 cases classes from the testing data set were predicted as folows:
+
+```{r}
+data.frame(testing_id = pmlTesting$problem_id, predicted.classe = predict(modelRF, newdata=pmlTesting))
+```
